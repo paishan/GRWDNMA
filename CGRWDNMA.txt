@@ -1,0 +1,98 @@
+model{ # Cointegrated Gaussian random walks with drift NMA model
+
+### within-study model ###
+# j = data point (one per arm)
+# m = time point
+# i = trial
+# k = arm
+
+for(j in 1:nobs){
+  for (m in 1:nout){
+    # observed main outcome data from Gaussian distribution centred at mean standardized effect (theta)
+    sefft.m[j,m] ~ dnorm(theta[trial[j],arm[j],m], prec.m[j,m])
+    prec.m[j,m] <- pow(set.m[j,m],-2)
+
+    # observed auxiliary outcome data from Gaussian distribution centred at mean standardized effect (eta)
+    sefft.a[j,m] ~ dnorm(eta[trial[j],arm[j],m], prec.a[j,m])
+    prec.a[j,m] <- pow(set.a[j,m],-2)
+  }
+
+  # theta from multivariate Gaussian distribution centred at mean of random walk
+  theta[trial[j],arm[j],1:nout] ~ dmnorm(mean.RW[trial[j],arm[j],1:nout], prec.RW[,])
+
+  # eta from Gaussian distribution centred at mean based on cointegrating relation
+  for (m in 1:nout){
+    eta[trial[j],arm[j],m] ~ dnorm(kap[trial[j],arm[j]] + nu[trial[j],arm[j]]*theta[trial[j],arm[j],m], prec.aux[j,m])
+    prec.aux[j,m] <- pow(sd.aux,-2)
+  }
+}
+
+# define precision matrix for covariance matrix of random walk
+prec.RW[1:nout,1:nout] <- inverse(cov.mat[,])
+
+# elements of covariance matrix under random walk structure
+for (m1 in 1:nout){
+  for (m2 in 1:nout){
+    cov.mat[m1,m2] <- min(m1,m2)*pow(sd.RW,2)
+  }
+}
+
+# define mean of random walk for main outcome
+for(i in 1:ntri){
+  for(k in 1:na[i]){
+    for(m in 1:nout){
+      mean.RW[i,k,m] <- mu[i] + delta[i,k] + (beta[i,k])*m
+    }
+  }
+}
+
+### between-study model ###
+for(i in 1:ntri) {
+  # control arm
+  delta[i,1] <- 0   # delta in control arm set to zero for each trial
+  w[i,1] <- 0       # multi-arm adjustment in control arm set to zero
+  mu[i] ~ dnorm(0,1) # prior for control arm treatment effect
+  beta[i,1] ~ dnorm(B[t.s[i,1]], prec.drift[i,1]) # distribution of trial-specific drifts in control arm
+  prec.drift[i,1] <- pow(sd.drift,-2)
+  nu[i,1] ~ dnorm(cr[t.s[i,1]], prec.cr[i,1]) # distribution of trial-specific cointegrating vector parameters in control arm
+  prec.cr[i,1] <- pow(sd.cr,-2)
+  kap[i,1] ~ dnorm(0,1) # prior for control arm stationary time series level
+
+  # intervention arm
+  for(k in 2:na[i]){
+    delta[i,k] ~ dnorm(md[i,k], prec.BS[i,k])
+    prec.BS[i,k] <- 2*tau.RE*(k-1)/k
+    beta[i,k] ~ dnorm(B[t.s[i,k]], prec.drift[i,k])
+    prec.drift[i,k] <- pow(sd.drift,-2)
+    nu[i,k] ~ dnorm(cr[t.s[i,k]], prec.cr[i,k])
+    prec.cr[i,k] <- pow(sd.cr,-2)
+    kap[i,k] ~ dnorm(0,1)
+
+    # multi-arm adjustments
+    md[i,k] <- d[t.s[i,k]] - d[t.s[i,1]] + sw[i,k]
+    w[i,k] <- delta[i,k] - (d[t.s[i,k]] - d[t.s[i,1]])
+    sw[i,k] <- sum(w[i,1:(k-1)])/(k-1)
+  }
+}
+
+# constraint on treatment effect of placebo relative to itself
+d[1] <- 0
+
+# weakly informative prior for pooled effects, drifts, and cointegrating vector parameters
+B[1] ~ dnorm(0,1)
+cr[1] ~ dnorm(1,1)
+
+for (k in 2:ntrt){  
+  d[k] ~ dnorm(0,1)
+  B[k] ~ dnorm(0,1)
+  cr[k] ~ dnorm(1,1)
+} 
+tau.RE <- pow(sd.RE,-2)
+
+# weakly informative prior for SD parameters
+sd.RW ~ dunif(0,2)
+sd.aux ~ dunif(0,2)
+sd.RE ~ dunif(0,2)
+sd.drift ~ dunif(0,2)
+sd.cr ~ dunif(0,2)
+}

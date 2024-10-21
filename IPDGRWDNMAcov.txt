@@ -1,0 +1,104 @@
+model {   # Gaussian random walk with drift IPD NMA model with covariate adjustment
+##### within-study model #####
+# l = IPD data point (indexing subjects) 
+# t = outcome measures (one per time point)
+# i = trial
+# k = arm (within trial)
+# j = subject (within arm of trial)
+
+for(l in 1:nobs){
+  # observed individual-level outcome measure from Gaussian distribution centred at individual-level underlying mean
+  for (t in 1:nout){
+    sout[l,t] ~ dnorm(theta.IPD[trial[l],arm[l],subj[l],t], prec.IPD.m[trial[l],arm[l]])
+  }
+  
+  # theta from multivariate Gaussian centred at mean of random walk
+  theta.IPD[trial[l],arm[l],subj[l],1:nout] ~ dmnorm(mean.RW[trial[l],arm[l],subj[l],1:nout], prec.RW[,])
+}
+
+# define precision of distribution of observed individual-level data; sd.IPD.m and sd.IPD.a to be estimated
+for(i in 1:ntri){
+  for (k in 1:na[i]){
+    prec.IPD.m[i,k] <- pow(sd.IPD.m[i,k],-2)
+  }
+}
+
+# define precision matrix for covariance matrix for random walk
+prec.RW[1:nout,1:nout] <- inverse(cov.mat[,])
+
+# elements of covariance matrix under random walk structure
+for (t1 in 1:nout){
+  for (t2 in 1:nout){
+    cov.mat[t1,t2] <- min(t1,t2)*pow(sd.RW.IPD,2)
+  }
+}
+
+# define mean of random walk
+for(i in 1:ntri){
+  for(k in 1:na[i]){
+    for (j in 1:npat[i,k]){
+      for(t in 1:nout) {
+        mean.RW[i,k,j,t] <- mu.IPD[i] + delta[i,k] + (beta.IPD[i,k,j])*t + (gamma.bsl[i])*(covar[i,k,j]) + 
+                            (gamma[t.s[i,k]]-gamma[t.s[i,1]])*(covar[i,k,j])
+      }
+    }
+  }
+}
+
+### between-study model ###
+for(i in 1:ntri) {
+  # control arm
+  delta[i,1] <- 0   # delta in control arm set to zero for each trial
+  w[i,1] <- 0       # multi-arm adjustment in control arm set to zero
+  gamma.bsl[i] ~ dnorm(0,1) # prior for covariate effect in control arm
+  mu.IPD[i] ~ dnorm(0,1) # prior for control arm treatment effect
+  for(j in 1:npat[i,1]){
+    beta.IPD[i,1,j] ~ dnorm(beta[i,1], prec.drift.IPD[i,1]) # distribution of subject-specific drifts in control arm
+  }
+  prec.drift.IPD[i,1] <- pow(sd.drift.IPD,-2)
+  beta[i,1] ~ dnorm(B[t.s[i,1]], prec.drift[i,1])
+  prec.drift[i,1] <- pow(sd.drift,-2)
+  
+  # intervention arm
+  for(k in 2:na[i]){
+    delta[i,k] ~ dnorm(md[i,k], prec.BS[i,k])
+    prec.BS[i,k] <- 2*tau.RE*(k-1)/k    
+    for(j in 1:npat[i,k]){
+      beta.IPD[i,k,j] ~ dnorm(beta[i,k], prec.drift.IPD[i,k])
+    }
+    prec.drift.IPD[i,k] <- pow(sd.drift.IPD,-2)
+    beta[i,k] ~ dnorm(B[t.s[i,k]], prec.drift[i,k])
+    prec.drift[i,k] <- pow(sd.drift,-2)
+    
+    # multi-arm adjustments
+    md[i,k] <- d[t.s[i,k]] - d[t.s[i,1]] + sw[i,k]
+    w[i,k] <- delta[i,k] - (d[t.s[i,k]] - d[t.s[i,1]])
+    sw[i,k] <- sum(w[i,1:(k-1)])/(k-1)
+  }
+}
+
+# constraint on pooled effect and treatment-by-covariate interaction for reference treatment relative to itself
+d[1] <- 0
+gamma[1] <- 0
+
+# weakly informative prior for pooled effect, drift, and treatment-by-covariate interaction parameters
+B[1] ~ dnorm(0,1)
+for (k in 2:ntrt){
+  d[k] ~ dnorm(0,1)
+  B[k] ~ dnorm(0,1)
+  gamma[k] ~ dnorm(0,1)
+}
+
+# weakly informative prior for SD parameters
+for (i in 1:ntri){
+  for (k in 1:na[i]){
+    sd.IPD.m[i,k] ~ dunif(0,2)
+  }
+}
+
+tau.RE <- pow(sd.RE,-2)
+sd.RW.IPD ~ dunif(0,2)
+sd.RE ~ dunif(0,2)
+sd.drift ~ dunif(0,2)
+sd.drift.IPD ~ dunif(0,2)
+}
